@@ -13,8 +13,7 @@ from fastapi.templating import Jinja2Templates
 from langchain.vectorstores import VectorStore
 
 from schemas import ChatResponse
-from query_data import get_chain, get_results, init_client
-import time
+from query_data import get_results, init_client
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 from opensearchpy.helpers import bulk
