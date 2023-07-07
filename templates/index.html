@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sheldon</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', path='/favicon.png') }}">
+    <meta property="og:image" content="./KafkaGPT.png">
+    <meta property="og:description"
+          content="A ChatGPT powered bot indexed on the Confluent docs that answers questions.">
+    <meta property="og:site-name" content="KafkaGPT">
+    <meta name="twitter:image" content="./KafkaGPT.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <link href="https://unpkg.com/tailwindcss@^2/dist/tailwind.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', path='/styles.css') }}" rel="stylesheet">
+    <script type="text/javascript" src="https://unpkg.com/showdown/dist/showdown.min.js"></script>
+
+    <style>
+        .chat-body {
+            width: 550px;
+            margin: 50px auto;
+        }
+
+        .card-body {
+            background-color: #333;
+            color: #fff;
+            border-radius: 10px;
+        }
+
+        .server-message {
+            background-color: #444;
+            padding: 10px;
+            margin: 10px;
+            border-radius: 10px;
+        }
+
+        .client-message {
+            background-color: #555;
+            padding: 10px;
+            margin: 10px;
+            border-radius: 10px;
+        }
+
+        .upload-file {
+            background-color: #555;
+            padding: 10px;
+            margin: 10px;
+            border-radius: 10px;
+        }
+
+        .form-inline {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .form-control {
+            width: 80%;
+            background-color: #333;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            padding: 10px;
+            margin-right: 10px;
+        }
+
+        #send {
+            background-color: #4C4CFF;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            padding: 10px 20px;
+        }
+
+        #uploadCSVButton {
+            background-color: #4C4CFF;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            padding: 10px 10px;
+        }
+
+        #uploadWikiButton {
+            background-color: #4C4CFF;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            padding: 10px 20px;
+        }
+
+        .form-message {
+            margin-top: 10px;
+        }
+
+        .upload-file > input {
+            visibility: hidden;
+            width: 0;
+            height: 0
+        }
+
+        /* The Modal (background) */
+        .modal {
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 1; /* Sit on top */
+            padding-top: 100px; /* Location of the box */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgb(0, 0, 0); /* Fallback color */
+            background-color: rgba(0, 0, 0, 0.4); /* Black w/ opacity */
+        }
+
+        /* Modal Content */
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+        }
+
+        /* The Close Button */
+        .close {
+            color: #aaaaaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .close:hover,
+        .close:focus {
+            color: #000;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        table, th, td {
+            border: 1px solid white;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            background-color: #96D4D4;
+        }
+
+        .var-highlight {
+            color: #C0AD60;
+        }
+
+        .string-highlight {
+            color: rgba(253, 149, 90, 0.8);
+        }
+
+        #typewriter {
+            font-size: 2em;
+            margin: 0;
+            font-family: "Courier New";
+
+        &
+        :after {
+            content: "|";
+            animation: blink 500ms linear infinite alternate;
+        }
+
+        }
+
+        @-webkit-keyframes blink {
+            0% {
+                opacity: 0;
+            }
+            100% {
+                opacity: 1;
+            }
+        }
+
+        @-moz-keyframes blink {
+            0% {
+                opacity: 0;
+            }
+            100% {
+                opacity: 1;
+            }
+        }
+
+        @keyframes blink {
+            0% {
+                opacity: 0;
+            }
+            100% {
+                opacity: 1;
+            }
+        }
+    </style>
+    <script>
+        var chat_endpoint = "ws://localhost:9000/chat";
+        var context_endpoint = "ws://localhost:9000/context";
+        var ws_chat = new WebSocket(chat_endpoint);
+        var ws_context = new WebSocket(context_endpoint);
+        var converter = new showdown.Converter();
+        // Receive message from server word by word. Display the words as they are received.
+
+        ws_context.onmessage = function (event) {
+            console.log("inside ws_context.onmessage")
+            var uploadCSVButton = document.getElementById("uploadCSVButton");
+            var data = JSON.parse(event.data);
+            console.log(data)
+
+            if (data.status === "complete") {
+                console.log("inside complete block")
+                uploadCSVButton.innerText = "Upload";
+                uploadCSVButton.disabled = false;
+            }
+        }
+
+        ws_chat.onmessage = function (event) {
+            var messages = document.getElementById('messages');
+            var data = JSON.parse(event.data);
+            if (data.sender === "bot") {
+                if (data.type === "start") {
+                    var header = document.getElementById('header');
+                    header.innerHTML = "Computing answer...";
+                    var div = document.createElement('div');
+                    div.className = 'server-message';
+                    var p = document.createElement('p');
+                    p.className = "typewriter"
+                    p.innerHTML = "<strong>" + "Sheldon: " + "</strong>";
+                    div.appendChild(p);
+                    messages.appendChild(div);
+                } else if (data.type === "stream") {
+                    console.log("Inside stream")
+                    var header = document.getElementById('header');
+                    header.innerHTML = "Chatbot is typing...";
+                    var p = messages.lastChild.lastChild;
+                    if (data.message === "\n") {
+                        p.innerHTML += "<br>";
+                    } else {
+                        p.innerHTML += data.message;
+                        typewriter = setupTypewriter(p);
+                        typewriter.type();
+                    }
+                } else if (data.type === "info") {
+                    console.log("Inside info")
+                    var header = document.getElementById('header');
+                    header.innerHTML = data.message;
+                } else if (data.type === "end") {
+                    console.log("INside end")
+                    var p = messages.lastChild.lastChild;
+                    p.innerHTML = converter.makeHtml(p.innerHTML)
+
+                    var header = document.getElementById('header');
+                    header.innerHTML = "Please ask another question";
+                    var button = document.getElementById('send');
+                    button.innerHTML = "Send";
+                    button.disabled = false;
+                    console.log(header.innerText)
+                    console.log(header.innerHTML)
+                } else if (data.type === "error") {
+                    var header = document.getElementById('header');
+                    header.innerHTML = "Please ask a question";
+                    var button = document.getElementById('send');
+                    button.innerHTML = "Send";
+                    button.disabled = false;
+                    var p = messages.lastChild.lastChild;
+                    p.innerHTML += data.message;
+                }
+            } else {
+                var div = document.createElement('div');
+                div.className = 'client-message';
+                var p = document.createElement('p');
+                p.innerHTML = "<strong>" + "You: " + "</strong>";
+                p.innerHTML += data.message;
+                div.appendChild(p);
+                messages.appendChild(div);
+            }
+            // Scroll to the bottom of the chat
+            messages.scrollTop = messages.scrollHeight;
+        };
+
+        // Send message to server
+        function sendMessage(event) {
+            event.preventDefault();
+            var message = document.getElementById('messageText').value;
+            if (message === "") {
+                return;
+            }
+            ws_chat.send(message);
+            document.getElementById('messageText').value = "";
+
+            // Turn the button into a loading button
+            var button = document.getElementById('send');
+            button.innerHTML = "loading...";
+            button.disabled = true;
+        }
+
+        function readFile() {
+            // Get the file input element
+            console.log("inside readFile")
+            var csvFile = document.getElementById("csvFile");
+
+            // Check if a file is selected
+            if (csvFile.files.length === 0) {
+                alert("This feature is under development.");
+                return;
+            }
+
+            // Get the first file in the list
+            var file = csvFile.files[0];
+
+            // Check if the file type is CSV
+            if (!file.name.endsWith(".csv")) {
+                alert("Please select a CSV file.");
+                return;
+            }
+
+            // Create a new FileReader object
+            var reader = new FileReader();
+
+            // Define the function to be executed when the file is loaded
+            reader.onload = function (event) {
+                // Get the contents of the file
+                var contents = event.target.result;
+
+                // Parse the CSV data
+                var data = Papa.parse(contents, {delimeter: ""}).data;
+
+                // Print the CSV data
+                var output = document.getElementById("output");
+                var output_csv = document.getElementById("output_csv");
+                output_csv.innerText = contents.toString()
+
+
+                // Turn the button into a loading button
+                var button = document.getElementById('uploadCSVButton');
+                button.innerHTML = "Uploading...";
+                button.disabled = true;
+
+                var tableContents = "";
+                tableContents = "<table>";
+                for (var i = 0; i < data.length; i++) {
+                    tableContents += "<tr>";
+                    for (var j = 0; j < data[i].length; j++) {
+                        tableContents += "<td>" + data[i][j] + "</td>";
+                    }
+                    tableContents += "</tr>";
+                }
+                tableContents += "</table>";
+                output.innerHTML = tableContents;
+
+                output_csv.innerText = output.innerHTML
+                console.log("Updated output_csv.innerText")
+                console.log(output_csv.innerText)
+
+                //Send context to server
+                ws_context.send(output_csv.innerText);
+                document.getElementById('output_csv').value = "";
+
+                var modal = document.getElementById("myModal");
+                modal.style.display = "block";
+            };
+
+            // Read the file as text
+            reader.readAsText(file);
+        }
+
+        // When the user clicks the button, open the modal
+        function openModalClicked() {
+            // Get the modal
+            var modal = document.getElementById("myModal");
+            modal.style.display = "block";
+        }
+
+        // When the user clicks on <span> (x), close the modal
+        function closeModalClicked() {
+            // Get the modal
+            var modal = document.getElementById("myModal");
+            modal.style.display = "none";
+        }
+
+        // When the user clicks anywhere outside of the modal, close it
+        window.onclick = function (event) {
+            var modal = document.getElementById("myModal");
+            if (event.target == modal) {
+                modal.style.display = "none";
+            }
+        }
+
+        function setupTypewriter(t) {
+            var HTML = t.innerHTML;
+
+            t.innerHTML = "";
+
+            var cursorPosition = 0,
+                tag = "",
+                writingTag = false,
+                tagOpen = false,
+                typeSpeed = 30,
+                tempTypeSpeed = 0;
+
+            var type = function () {
+
+                if (writingTag === true) {
+                    tag += HTML[cursorPosition];
+                }
+
+                if (HTML[cursorPosition] === "<") {
+                    tempTypeSpeed = 0;
+                    if (tagOpen) {
+                        tagOpen = false;
+                        writingTag = true;
+                    } else {
+                        tag = "";
+                        tagOpen = true;
+                        writingTag = true;
+                        tag += HTML[cursorPosition];
+                    }
+                }
+                if (!writingTag && tagOpen) {
+                    tag.innerHTML += HTML[cursorPosition];
+                }
+                if (!writingTag && !tagOpen) {
+                    if (HTML[cursorPosition] === " ") {
+                        tempTypeSpeed = 0;
+                    } else {
+                        tempTypeSpeed = (Math.random() * typeSpeed) + 5;
+                    }
+                    t.innerHTML += HTML[cursorPosition];
+                }
+                if (writingTag === true && HTML[cursorPosition] === ">") {
+                    tempTypeSpeed = (Math.random() * typeSpeed) + 5;
+                    writingTag = false;
+                    if (tagOpen) {
+                        var newSpan = document.createElement("span");
+                        t.appendChild(newSpan);
+                        newSpan.innerHTML = tag;
+                        tag = newSpan.firstChild;
+                    }
+                }
+
+                cursorPosition += 1;
+                if (cursorPosition < HTML.length - 1) {
+                    setTimeout(type, tempTypeSpeed);
+                }
+
+            };
+
+            return {
+                type: type
+            };
+        }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+
+</head>
+
+<body class="bg-black">
+<div class="chat-body card">
+    <div class="card-body p-5">
+        <h4 class="card-title text-center text-xl font-medium"> Sheldon </h4>
+        <p class="card-text text-center text-sm" id="header">Please ask a question</p>
+        <hr class="border-gray-500 mb-5" style="margin-top: 20px;">
+        <div id="messages" class="overflow-auto" style="max-height: 500px;">
+        </div>
+        <form action="" class="form-inline mt-5" id="chat-form" onsubmit="sendMessage(event)">
+            <input type="text" class="form-control" placeholder="Write your question" id="messageText">
+            <button id="send" type="submit" class="btn btn-primary">Send</button>
+        </form>
+
+        <hr class="border-gray-500 mb-5" style="margin-top: 20px;">
+
+        <div class="upload-file">
+            <h2 id="introHeader"><strong>Upload Context Library</strong></h2>
+            <fieldset>
+                <input type="file" name="File Upload" id="csvFile" accept=".csv" style="margin-top: 12px"/>
+                <button id="uploadCSVButton" type="button" class="btn btn-primary" onclick="readFile()"
+                        style="float: right;width: 130px;">Upload File
+                </button>
+                <hr class="border-gray-500 mb-5" style="margin-top: 20px;">
+
+                <div>
+                    <input type="text" class="card-body" name="wiki Upload" id="wikiURL" accept=".csv"
+                           style="margin-top: 6px;padding: 5px;" placeholder="  Provide Wiki URL"/>
+                    <button id="uploadWikiButton" type="button" class="btn btn-primary" onclick="readFile()"
+                            style="float: right;width: 130px;">Upload Wiki
+                    </button>
+                </div>
+            </fieldset>
+            <!-- The Modal -->
+            <div id="myModal" class="modal">
+
+                <!-- Modal content -->
+                <div class="modal-content">
+                    <span class="close" onclick="closeModalClicked()">&times;</span>
+                    <div id="output" style="color: black;">Tabular Content</div>
+                    <div id="output_csv" style="color: black;visibility: hidden">Raw CSV Content</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+<footer class="footer-text">
+    <p>
+    <center><span class="grey-text">Made by </span><a href="https://hack.amazon.com/#finauto23/ideas/60246">Sheldon
+        Team</a><span class="grey-text">. Read documentation on </span><a
+            href="https://quip-amazon.com/aSVtAA6N7cwt/Sheldon-LLM-powered-Question-Answering-Assistant">Quip</a><span
+            class="grey-text">.</center>
+    </p>
+</footer>
+</body>
+</html>
