@@ -12,7 +12,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from langchain.vectorstores import VectorStore
 
-from callback import QuestionGenCallbackHandler, StreamingLLMCallbackHandler
 from schemas import ChatResponse
 from query_data import get_chain, get_results, init_client
 import time
@@ -104,10 +103,10 @@ async def context_websocket_endpoint(websocket: WebSocket):
 @app.websocket("/chat")
 async def chat_websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    question_handler = QuestionGenCallbackHandler(websocket)
-    stream_handler = StreamingLLMCallbackHandler(websocket)
+    # question_handler = QuestionGenCallbackHandler(websocket)
+    # stream_handler = StreamingLLMCallbackHandler(websocket)
     chat_history = []
-    qa_chain = get_chain(vectorstore, question_handler, stream_handler, tracing=False)
+    # qa_chain = get_chain(vectorstore, question_handler, stream_handler, tracing=False)
 
     while True:
         try:
